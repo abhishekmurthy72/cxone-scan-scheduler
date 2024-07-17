@@ -1,0 +1,31 @@
+name: Checkmarx Scan Scheduler
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight UTC
+
+jobs:
+  checkmarx-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Run Checkmarx Scan
+      uses: abhishekmurthy72/cxone-scan-scheduler@main
+      with:
+        # Required variables
+        cx_api_key: ${{ secrets.CX_API_KEY }}
+        cx_origin: "GitHub Actions"
+        cx_incremental_scan: "false"
+        cx_project_name: "abhishekmurthy72/Terraform_project"
+        cx_repo_url: "https://github.com/abhishekmurthy72/Terraform_project"
+        cx_branch: "Terraform-project"
+        
+        # # Optional variables
+        # cx_team_name: "<Your_Team_Name>"
+        # cx_preset_name: "<Your_Preset_Name>"
+        # cx_exclude_files: "<File_Patterns_To_Exclude>"
+        # cx_exclude_folders: "<Folder_Patterns_To_Exclude>"
+
