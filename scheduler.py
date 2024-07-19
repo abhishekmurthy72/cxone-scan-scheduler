@@ -1,113 +1,116 @@
-#!/usr/bin/python3
-import sys, os, logging, utils
+import os
+import requests
 
-if sys.argv[0].lower().startswith("audit"):
-    is_audit = True
-    utils.configure_audit_logging()
-else:
-    is_audit = False
-    utils.configure_normal_logging()
+def get_access_token(refresh_token, tenant):
+    url = f"https://iam.checkmarx.net/auth/realms/{tenant}/protocol/openid-connect/token"
+    data = {
+        "grant_type": "refresh_token",
+        "client_id": "ast-app",
+        "refresh_token": refresh_token
+    }
+    
+    response = requests.post(url, data=data)
+    response.raise_for_status()
+    return response.json()["access_token"]
 
-import asyncio, aiofiles, time
-from cxone_api import CxOneClient, paged_api, CommunicationException
-from logic import Scheduler
+def main():
+    cx_refresh_token = os.getenv('CX_REFRESH_TOKEN')
+    cx_origin = os.getenv('CX_ORIGIN')
+    cx_incremental_scan = os.getenv('CX_INCREMENTAL_SCAN')
+    cx_project_id = os.getenv('CX_PROJECT_ID')
+    cx_repo_url = os.getenv('CX_REPO_URL')
+    cx_branch = os.getenv('CX_BRANCH')
+    cx_username = os.getenv('CX_USERNAME')
+    cx_api_key = os.getenv('CX_API_KEY')
+    cx_tenant = os.getenv('CX_TENANT')
 
+    # Log environment variables
+    print("Environment variables:")
+    print(f"CX_REFRESH_TOKEN: {cx_refresh_token}")
+    print(f"CX_ORIGIN: {cx_origin}")
+    print(f"CX_INCREMENTAL_SCAN: {cx_incremental_scan}")
+    print(f"CX_PROJECT_ID: {cx_project_id}")
+    print(f"CX_REPO_URL: {cx_repo_url}")
+    print(f"CX_BRANCH: {cx_branch}")
+    print(f"CX_USERNAME: {cx_username}")
+    print(f"CX_API_KEY: {cx_api_key}")
+    print(f"CX_TENANT: {cx_tenant}")
 
-__log = logging.getLogger("scheduler daemon")
-__log.info("Scheduler starting")
-
-while True:
     try:
-        __log.debug("Loading configuration")
-        tenant, oauth_id, oauth_secret = utils.load_secrets()
-        assert not tenant is None
-        assert not oauth_id is None
-        assert not oauth_secret is None
+        # Get access token using refresh token
+        access_token = get_access_token(cx_refresh_token, cx_tenant)
+        print("Access token retrieved successfully")
 
-        auth_endpoint, api_endpoint = utils.load_endpoints(tenant)
-        assert auth_endpoint is not None and api_endpoint is not None
+        # Construct the Checkmarx API request
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json; version=1.0',
+            'CorrelationId': ''
+        }
 
-        ssl_verify = utils.get_ssl_verify()
-        proxy = utils.get_proxy_config()
+        payload = {
+            "type": "git",
+            "handler": {
+                "branch": cx_branch,
+                "repoUrl": cx_repo_url,
+                "credentials": {
+                    "username": cx_username,
+                    "type": "apiKey",
+                    "value": cx_api_key
+                },
+                "skipSubModules": False
+            },
+            "project": {
+                "id": cx_project_id,
+                "tags": {
+                    "test": "",
+                    "priority": "high"
+                }
+            },
+            "config": [
+                {
+                    "type": "sast",
+                    "value": {
+                        "incremental": "false"
+                    }
+                },
+                {
+                    "type": "sca"
+                },
+                {
+                    "type": "kics"
+                },
+                {
+                    "type": "apisec"
+                }
+            ],
+            "tags": {
+                "Scheduled Scan": "",
+                "priority": "high"
+            }
+        }
 
-        agent = "CxOneScheduler"
-        version = None
-        with open("version.txt", "rt") as ver:
-            version = ver.readline().strip()
+        # Log the headers and payload
+        print("Headers:")
+        print(headers)
+        print("Payload:")
+        print(payload)
 
-        client = CxOneClient.create_with_oauth(oauth_id, oauth_secret, f"{agent}/{version}", auth_endpoint, 
-                            api_endpoint, ssl_verify=ssl_verify, proxy=proxy)
+        # Send the request to the Checkmarx API
+        response = requests.post('https://ast.checkmarx.net/api/scans', headers=headers, json=payload)
+        
+        # Log the response status code and content
+        print("Response status code:", response.status_code)
+        print("Response content:", response.text)
 
+        response.raise_for_status()
+        print("Checkmarx scan initiated successfully")
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTPError: {e}")
+        print("Response content:", e.response.content if e.response else 'No response content')
+    except Exception as e:
+        print(f"Error occurred: {e}")
 
-        policies = utils.load_policies()
-        __log.debug(f"Policies: {policies}")
-
-        default_schedule = utils.load_default_schedule()
-        __log.debug(f"Default Schedule: {default_schedule}")
-
-        group_schedules = utils.load_group_schedules(policies)
-        __log.debug(f"Group Schedules: {group_schedules}")
-
-        update_delay = utils.load_schedule_update_delay()
-        __log.debug(f"Update Delay: {update_delay}")
-
-
-        __log.debug("Configuration loaded")
-
-        async def log_fifo():
-            if os.path.exists("/opt/cxone/logfifo"):
-                __log.debug("Running background fifo reader")
-                while True:
-                    async with aiofiles.open("/opt/cxone/logfifo", "rt", buffering=1) as log:
-                        async for line in log:
-                            if len(line) > 0:
-                                print(line.strip())
-
-
-        async def scheduler():
-            the_scheduler = await Scheduler.start(client, default_schedule, group_schedules, policies)
-
-            # This task will never end
-            logtask = asyncio.create_task(log_fifo())
-
-            __log.info("Scheduler loop started")
-            short_delay = False
-            while True:
-                __log.info(f"Projects with scheduled scans: {the_scheduler.scheduled_scans}")
-                await asyncio.sleep(update_delay if not short_delay else 90)
-                __log.info("Updating schedule...")
-                try:
-                    new, removed, changed = await the_scheduler.refresh_schedule()
-                    short_delay = False
-                    __log.info(f"Schedule changes: New: {new} Removed: {removed} Changed: {changed}")
-                except CommunicationException as ex:
-                    __log.exception(ex)
-                    short_delay = True
-                except Exception as gex:
-                    __log.exception(gex)
-
-        async def audit():
-            print('"ProjectId","State","Details"')
-
-            def skipped_entry_cb(project_id, reason):
-                print(f'"{project_id}","SKIPPED","{reason}"')
-
-            for entry in (await Scheduler.audit(client, default_schedule, group_schedules, policies, skipped_entry_cb)).values():
-                for sched in entry:
-                    clean_sched = str(sched).replace("'", "")
-                    print(f'"{sched.project_id}","SCHEDULED","{clean_sched}"')
-
-        if is_audit:
-            try:
-                asyncio.run(audit())
-            except Exception as ex:
-                __log.exception(ex)
-            finally:
-                break
-        else:
-            asyncio.run(scheduler())
-
-    except Exception as ex:
-        __log.exception(ex)
-        __log.info("Unhandled exception, retrying after delay.")
-        time.sleep(90)
+if __name__ == "__main__":
+    main()
