@@ -1,0 +1,49 @@
+name: Checkmarx Scan
+
+on:
+  schedule:
+    - cron: '*/60 * * * *'  # Runs every 3 minutes
+  workflow_dispatch:  # Allows manual triggering of the workflow
+
+jobs:
+  checkmarx-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+        
+    - name: Extract branch name
+      id: extract_branch
+      run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      
+    - name: Fetch GitHub user email
+      id: fetch_email
+      run: |
+        email=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/user | jq -r .email)
+        echo "USER_EMAIL=${email}" >> $GITHUB_ENV
+      
+    - name: Run Checkmarx Scan
+      env:
+        CX_REFRESH_TOKEN: ${{ secrets.CX_API_KEY }}
+        CX_PROJECT_ID: ${{ secrets.CX_PROJECT_ID }}
+        CX_ORIGIN: "GitHub Actions"
+        CX_INCREMENTAL_SCAN: "false"
+        CX_PROJECT_NAME: ${{ github.repository }}
+        CX_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        CX_BRANCH: ${{ env.BRANCH_NAME }}
+        CX_USERNAME: ${{ env.USER_EMAIL }}
+        CX_API_KEY: ${{ github.token }}
+        CX_TENANT: ${{ vars.CX_TENANT }}
+      run: |
+        python scheduler.py
