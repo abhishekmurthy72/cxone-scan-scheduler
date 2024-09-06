@@ -8,7 +8,7 @@ def get_access_token(refresh_token, tenant):
         "client_id": "ast-app",
         "refresh_token": refresh_token
     }
-    
+   # scheduling tasks tests 
     response = requests.post(url, data=data)
     response.raise_for_status()
     return response.json()["access_token"]
