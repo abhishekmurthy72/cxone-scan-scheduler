@@ -19,7 +19,6 @@ on:
          - main
          - master
          - dev
-         - Terraform-project-1
          
   pull_request:
     types: [opened, reopened, synchronize]
