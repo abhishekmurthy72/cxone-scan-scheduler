@@ -22,7 +22,7 @@ on:
          
   pull_request:
     types: [opened, reopened, synchronize]
-    branches: [ "Terraform-project-1" ]
+    branches: [ "master" ]
 
 permissions:
   contents: read
