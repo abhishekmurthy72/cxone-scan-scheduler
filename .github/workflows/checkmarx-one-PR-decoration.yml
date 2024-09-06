@@ -51,7 +51,7 @@ jobs:
           cx_tenant: ${{ vars.TENANT }}
           additional_params: --report-format sarif --output-path .
 
-      # - name: Upload SARIF file
-      #   uses: github/codeql-action/upload-sarif@v2
-      #   with:
-      #     sarif_file: cx_result.sarif
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: cx_result.sarif
