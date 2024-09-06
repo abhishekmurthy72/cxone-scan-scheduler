@@ -1,6 +1,6 @@
 import os
 import requests
-
+# Testing  2
 def get_access_token(refresh_token, tenant):
     url = f"https://iam.checkmarx.net/auth/realms/{tenant}/protocol/openid-connect/token"
     data = {
