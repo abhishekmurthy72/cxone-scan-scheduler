@@ -1,13 +1,13 @@
 import os
 import requests
 
-def get_access_token(refresh_token, tenant):
-    url = f"https://iam.checkmarx.net/auth/realms/{tenant}/protocol/openid-connect/token"
-    data = {
-        "grant_type": "refresh_token",
-        "client_id": "ast-app",
-        "refresh_token": refresh_token
-    }
+# def get_access_token(refresh_token, tenant):
+#     url = f"https://iam.checkmarx.net/auth/realms/{tenant}/protocol/openid-connect/token"
+#     data = {
+#         "grant_type": "refresh_token",
+#         "client_id": "ast-app",
+#         "refresh_token": refresh_token
+#     }
     
     response = requests.post(url, data=data)
     response.raise_for_status()
